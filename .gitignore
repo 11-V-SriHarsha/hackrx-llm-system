@@ -1,0 +1,37 @@
+
+# Virtual environment
+venv/
+.venv/
+
+# Python bytecode
+__pycache__/
+*.pyc
+*.pyd
+*.pyo
+
+# Editor/IDE files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+.DS_Store # macOS specific
+
+# Environment variables
+.env
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
+
+# Database files
+*.sqlite3
+db.sqlite3
+
+# Test coverage reports
+.coverage
+
+# Distribution and build files
+dist/
+build/
+*.egg-info/
