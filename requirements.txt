@@ -1,15 +1,27 @@
+# ==============================================================================
+# File: requirements.txt - Optimized compatible version
+# ==============================================================================
 fastapi==0.104.1
 uvicorn[standard]==0.24.0
-pydantic==2.7.4
+pydantic==2.5.0
 python-dotenv==1.0.0
-requests==2.32.3
-langchain==0.3.27
-langchain-core==0.3.72
-langchain-community==0.3.27
-langchain-groq==0.2.0
-langchain-pinecone==0.2.4
-langchain-huggingface==0.1.0
+requests==2.31.0
+
+# Core ML/AI packages - compatible versions
+numpy<2.0.0
+torch
+sentence-transformers
+
+# LangChain packages
+langchain==0.1.20
+langchain-core==0.1.52
+langchain-community==0.0.38
+langchain-groq==0.1.5
+langchain-pinecone==0.1.0
+langchain-huggingface
+
+# Document processing
 pypdf==3.17.4
-sentence-transformers==2.6.1
+
+# Vector database
 pinecone-client==3.2.2
-torch==2.1.0

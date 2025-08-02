@@ -3,68 +3,127 @@ from langchain_groq import ChatGroq
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 import os
+import re
 
 def get_rag_chain(vectorstore):
-    """Create RAG chain with improved error handling and configuration."""
+    """Create RAG chain optimized for concise, document-specific answers."""
     
     try:
+        # Optimized LLM settings for concise responses
         llm = ChatGroq(
-            temperature=0, 
+            temperature=0.0,  # Zero temperature for consistent, factual responses
             model_name="meta-llama/llama-4-scout-17b-16e-instruct",
             api_key=os.getenv("GROQ_API_KEY"),
-            max_tokens=1024,
-            timeout=60,
-            max_retries=3
+            max_tokens=150,   # Reduced for concise responses
+            timeout=30,
+            max_retries=2
         )
         print("Successfully initialized ChatGroq with Llama-4 Scout")
     except Exception as e:
         raise Exception(f"Failed to initialize ChatGroq: {e}")
 
     try:
-        # Enhanced retriever configuration
+        # Enhanced retriever for maximum relevant context
         retriever = vectorstore.as_retriever(
-            search_type="similarity",
-            search_kwargs={"k": 8}  # Get top 8 most relevant chunks
+            search_type="mmr",
+            search_kwargs={
+                "k": 8,  # Sufficient relevant chunks
+                "lambda_mult": 0.9,  # Strong preference for relevance
+                "fetch_k": 20  # Cast wide net for candidates
+            }
         )
         print("Successfully created document retriever")
     except Exception as e:
-        raise Exception(f"Failed to create retriever: {e}")
+        retriever = vectorstore.as_retriever(
+            search_type="similarity",
+            search_kwargs={"k": 8}
+        )
+        print("Using similarity search retriever as fallback")
     
-    # Improved prompt template for better results
-    prompt_template = """You are an expert AI assistant specializing in insurance policy analysis.
+    # **KEY FIX**: Completely rewritten prompt for concise, document-focused responses
+    prompt_template = """You are an insurance document analyzer. Extract ONLY the specific information from the policy document to answer the question.
 
-Your task: Answer the question based SOLELY on the provided context from the insurance document.
+CRITICAL INSTRUCTIONS:
+1. Answer ONLY with information found in the provided document context
+2. Be concise - maximum 1-2 sentences
+3. Use exact details, numbers, and terms from the document
+4. If information is not in the document, say "This information is not specified in the policy document"
+5. Do NOT provide general insurance knowledge or explanations
+6. Do NOT use phrases like "typically" or "usually" or "standard practice"
+7. Focus on factual extraction, not interpretation
 
-Instructions:
-1. Use ONLY the information provided in the context below
-2. Be precise, accurate, and direct in your answers
-3. If the answer is not available in the context, respond exactly: "The answer is not available in the provided document."
-4. Do not include document references, chunk IDs, or source mentions in your response
-5. Focus specifically on what the question asks
-6. Provide complete answers with relevant details when information is available
-
-Context:
+Document Context:
 {context}
 
 Question: {question}
 
-Answer:"""
+Concise Answer (extract directly from document):"""
     
     prompt = ChatPromptTemplate.from_template(prompt_template)
     
     def format_docs(docs):
-        """Format retrieved documents for better context presentation."""
+        """Format documents for focused extraction."""
         if not docs:
-            return "No relevant context found."
+            return "No relevant information found in the policy document."
         
-        # Clean and format the context
-        formatted_context = []
-        for i, doc in enumerate(docs, 1):
+        # Get most relevant content
+        formatted_sections = []
+        seen_content = set()
+        
+        for doc in docs[:6]:  # Limit to most relevant docs
             content = doc.page_content.strip()
-            if content:
-                formatted_context.append(f"Context {i}:\n{content}")
+            
+            # Skip duplicates and very short content
+            if len(content) < 30 or content in seen_content:
+                continue
+                
+            seen_content.add(content)
+            
+            # Clean content for better extraction
+            content = re.sub(r'\s+', ' ', content)
+            content = re.sub(r'([a-z])([A-Z])', r'\1 \2', content)
+            content = content.strip()
+            
+            formatted_sections.append(content)
         
-        return "\n\n".join(formatted_context) if formatted_context else "No relevant context found."
+        if not formatted_sections:
+            return "No relevant information found in the policy document."
+            
+        return "\n\n".join(formatted_sections)
+    
+    def clean_answer(answer):
+        """Clean and ensure concise answer format."""
+        if not answer:
+            return "This information is not specified in the policy document."
+        
+        # Remove verbose patterns
+        answer = re.sub(r'The (provided )?policy document (does not explicitly mention|does not mention|provided does not)', 
+                       'This policy does not specify', answer)
+        answer = re.sub(r'typically.*?policies', '', answer)
+        answer = re.sub(r'usually.*?insurance', '', answer)
+        answer = re.sub(r'standard.*?practice', '', answer)
+        answer = re.sub(r'in the insurance industry', '', answer)
+        
+        # Convert to single line
+        answer = re.sub(r'\n+', ' ', answer)
+        answer = re.sub(r'\s+', ' ', answer)
+        answer = answer.strip()
+        
+        # Ensure proper ending
+        if answer and not answer.endswith('.'):
+            answer += '.'
+        
+        # Capitalize first letter
+        if answer and answer[0].islower():
+            answer = answer[0].upper() + answer[1:]
+        
+        # Limit length - if too long, extract first sentence
+        if len(answer) > 300:
+            sentences = answer.split('. ')
+            if len(sentences) > 1:
+                answer = sentences[0] + '.'
+        
+        return answer
     
     # Build the RAG chain
     rag_chain = (
@@ -72,7 +131,8 @@ Answer:"""
         | prompt
         | llm
         | StrOutputParser()
+        | clean_answer
     )
     
-    print("RAG chain created successfully")
+    print("Concise document-focused RAG chain created successfully")
     return rag_chain
