@@ -1,102 +1,80 @@
 import os
 import time
+import hashlib
+import torch
 from pinecone import Pinecone, ServerlessSpec
 from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_pinecone import PineconeVectorStore
 from typing import List, Tuple
-import hashlib
+import logging
+
+logger = logging.getLogger(__name__)
 
 def get_vectorstore(chunked_docs: List, document_url: str) -> Tuple[PineconeVectorStore, str]:
-    """Create vectorstore using a single persistent index and namespace based on document."""
+    """Create persistent vectorstore with document-specific namespaces."""
 
     try:
         pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
-        print("Connected to Pinecone successfully")
+        logger.info("🔗 Connected to Pinecone successfully")
     except Exception as e:
         raise Exception(f"Failed to connect to Pinecone: {e}")
 
     try:
+        # Correct model: BGE Small (384-d)
         embeddings = HuggingFaceEmbeddings(
             model_name="BAAI/bge-small-en-v1.5",
-            model_kwargs={'device': 'cpu'},
-            encode_kwargs={
-                'normalize_embeddings': True,
-                'batch_size': 16
-            }
+            model_kwargs={'device': 'cuda' if torch.cuda.is_available() else 'cpu'},
+            encode_kwargs={'normalize_embeddings': True,  'batch_size': 32}
         )
-        print("Embeddings model loaded successfully")
-    except Exception as e:
-        raise Exception(f"Failed to load embeddings model: {e}")
+        logger.info("⚡ Fast embedding model loaded: BAAI/bge-small-en-v1.5 (384-d)")
 
-    # Use fixed index name and generate namespace per document
-    index_name = "hackrx-final"
-    namespace = hashlib.md5(document_url.encode()).hexdigest()[:8]
-    model_dimension = 384
+    except Exception as e:
+        raise Exception(f"Failed to load embedding model: {e}")
+
+    # IMPORTANT: Index must match BGE's 384-dim output
+    index_name = "hackrx-fast-384"
+    namespace = hashlib.md5(document_url.encode()).hexdigest()[:12]
 
     try:
         existing_indexes = pc.list_indexes().names()
 
         if index_name not in existing_indexes:
-            try:
-                print(f"Creating persistent index: {index_name}")
-                pc.create_index(
-                    name=index_name,
-                    dimension=model_dimension,
-                    metric="cosine",
-                    spec=ServerlessSpec(cloud="aws", region="us-east-1")
-                )
-                time.sleep(10)  # Allow time for index to initialize
-            except Exception as create_err:
-                raise Exception(f"Unable to create persistent index '{index_name}': {create_err}")
+            logger.info(f"🏗️ Creating PERSISTENT index: {index_name}")
+            pc.create_index(
+                name=index_name,
+                dimension=384,  # 🔧 FIXED: Was incorrectly set to 768
+                metric="cosine",
+                spec=ServerlessSpec(cloud="aws", region="us-east-1")
+            )
+            logger.info(f"✅ Waiting for index '{index_name}' to be ready...")
+            for _ in range(30):  # Wait up to ~30 seconds
+                if index_name in pc.list_indexes().names():
+                    break
+                time.sleep(1)
 
-        vectorstore = PineconeVectorStore.from_documents(
-            documents=chunked_docs,
-            embedding=embeddings,
-            index_name=index_name,
-            namespace=namespace
-        )
+        vectorstore_index = pc.Index(index_name)
 
-        print("Vectorstore created using namespace:", namespace)
+        stats = vectorstore_index.describe_index_stats()
+        namespace_stats = stats.get("namespaces", {}).get(namespace, {})
+        vector_count = namespace_stats.get("vector_count", 0)
+
+        if vector_count > 0:
+            vectorstore = PineconeVectorStore.from_existing_index(
+                index_name=index_name,
+                embedding=embeddings,
+                namespace=namespace
+            )
+            logger.info(f"♻️ Reusing existing namespace '{namespace}' with {vector_count} vectors")
+        else:
+            vectorstore = PineconeVectorStore.from_documents(
+                documents=chunked_docs,
+                embedding=embeddings,
+                index_name=index_name,
+                namespace=namespace
+            )
+            logger.info(f"🆕 Created new namespace '{namespace}' with {len(chunked_docs)} vectors")
+
         return vectorstore, namespace
 
     except Exception as e:
         raise Exception(f"Failed to create vectorstore: {e}")
-
-def cleanup_old_indexes():
-    """Clean up old random indexes (call this periodically)"""
-    try:
-        pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
-        indexes = pc.list_indexes().names()
-
-        cleaned_count = 0
-        for index_name in indexes:
-            if index_name.startswith("hackrx-rag-"):  # Old random indexes
-                try:
-                    print(f"Cleaning up old index: {index_name}")
-                    pc.delete_index(index_name)
-                    cleaned_count += 1
-                except Exception as e:
-                    print(f"Error deleting index {index_name}: {e}")
-
-        if cleaned_count > 0:
-            print(f"Cleaned up {cleaned_count} old indexes")
-        else:
-            print("No old indexes to clean up")
-
-    except Exception as e:
-        print(f"Error during cleanup: {e}")
-
-def delete_pinecone_index(index_name: str):
-    """Delete specific Pinecone index with error handling."""
-    try:
-        print(f"Attempting to delete index: {index_name}")
-        pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
-
-        if index_name in pc.list_indexes().names():
-            pc.delete_index(index_name)
-            print(f"Successfully deleted index: {index_name}")
-        else:
-            print(f"Index {index_name} not found for deletion")
-
-    except Exception as e:
-        print(f"Error deleting index {index_name}: {e}")

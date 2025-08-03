@@ -5,32 +5,32 @@ import os
 from typing import List
 import tempfile
 import re
+import logging
+
+logger = logging.getLogger(__name__)
 
 def process_document_from_url(url: str, timeout: int = 60) -> List:
-    """Optimized document processing for better information extraction."""
+    """Enhanced document processing optimized for insurance documents."""
     
     with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as temp_file:
         temp_pdf_path = temp_file.name
     
     try:
-        print(f"Downloading document from: {url}")
+        logger.info(f"📄 Downloading document from: {url}")
         
         headers = {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
         }
         
         response = requests.get(url, headers=headers, timeout=timeout, stream=True)
         response.raise_for_status()
         
-        # Write content to temp file
-        total_size = 0
         with open(temp_pdf_path, "wb") as f:
-            for chunk in response.iter_content(chunk_size=8192):
+            for chunk in response.iter_content(chunk_size=16384):
                 if chunk:
                     f.write(chunk)
-                    total_size += len(chunk)
         
-        print(f"Downloaded {total_size} bytes successfully")
+        logger.info("✅ Download successful")
         
         # Load PDF
         loader = PyPDFLoader(temp_pdf_path)
@@ -39,103 +39,96 @@ def process_document_from_url(url: str, timeout: int = 60) -> List:
         if not documents:
             raise ValueError("No content could be extracted from the PDF")
         
-        print(f"Extracted {len(documents)} pages from PDF")
+        logger.info(f"📖 Extracted {len(documents)} pages from PDF")
         
-        # Optimized text splitting for better fact extraction
+        # OPTIMIZED CHUNKING for Insurance Documents
         text_splitter = RecursiveCharacterTextSplitter(
-            chunk_size=800,      # Smaller chunks for precise information
-            chunk_overlap=100,   # Sufficient overlap
+            chunk_size=800,      # Optimal size for insurance policies
+            chunk_overlap=150,   # Good context overlap
             length_function=len,
             separators=[
                 "\n\n\n",  # Section breaks
                 "\n\n",    # Paragraph breaks  
                 "\n",      # Line breaks
                 ". ",      # Sentence endings
-                "? ",      # Question sentences
-                "! ",      # Exclamation sentences
-                "; ",      # Semicolon breaks
-                ": ",      # Colon breaks
-                ", ",      # Comma breaks
-                " ",       # Space breaks
-                ""         # Character level fallback
+                "? ",      # Questions
+                "! ",      # Exclamations
+                "; ",      # Semicolons
+                ", ",      # Commas
+                " ",       # Spaces
+                ""         # Character fallback
             ]
         )
         
         chunked_docs = text_splitter.split_documents(documents)
         
-        # Enhanced cleaning for better information extraction
+        # ENHANCED PROCESSING for Insurance Content
         enhanced_chunks = []
-        for doc in chunked_docs:
+        for i, doc in enumerate(chunked_docs):
             content = doc.page_content.strip()
             
             # Skip very short chunks
-            if len(content) < 40:
+            if len(content) < 30:
                 continue
             
-            # Advanced cleaning optimized for insurance documents
+            # Clean content for insurance documents
             content = re.sub(r'\s+', ' ', content)  # Normalize whitespace
-            content = re.sub(r'([a-z])([A-Z])', r'\1 \2', content)  # Fix concatenated words
-            content = re.sub(r'(\d+)([A-Za-z])', r'\1 \2', content)  # Fix number-letter concatenations
+            content = re.sub(r'([a-z])([A-Z])', r'\1 \2', content)  # Fix word concatenation
+            content = re.sub(r'(\d+)\s*%', r'\1%', content)  # Fix percentages
+            content = re.sub(r'(\d+)\s*(years?|months?|days?)', r'\1 \2', content)  # Fix periods
+            content = re.sub(r'Rs\.?\s*(\d+)', r'Rs. \1', content)  # Fix currency
             
-            # Preserve important insurance terms and numbers
-            content = re.sub(r'(\d+)\s*%', r'\1%', content)  # Fix percentage formatting
-            content = re.sub(r'(\d+)\s*(years?|days?|months?)', r'\1 \2', content)  # Fix time periods
-            content = re.sub(r'(\d+)\s*(lakhs?|crores?)', r'\1 \2', content)  # Fix currency amounts
-            
-            # Clean up excessive whitespace
-            content = re.sub(r'\n\s*\n\s*\n+', '\n\n', content)
             content = content.strip()
-            
-            # Update the document content
             doc.page_content = content
             
-            # Add metadata for better categorization and retrieval
+            # Add comprehensive metadata
             doc.metadata.update({
-                'chunk_id': len(enhanced_chunks),
+                'chunk_id': i,
                 'source': url,
                 'chunk_length': len(content),
-                'content_type': 'insurance_policy'
+                'page_number': doc.metadata.get('page', 0)
             })
             
-            # Simple content categorization for better retrieval
+            # SMART CATEGORIZATION for Better Retrieval
             content_lower = content.lower()
-            if any(keyword in content_lower for keyword in ['age', 'entry', 'eligibility', 'minimum', 'maximum']):
-                doc.metadata['category'] = 'age_eligibility'
-            elif any(keyword in content_lower for keyword in ['maturity', 'benefit', 'sum assured', 'death']):
-                doc.metadata['category'] = 'benefits'
-            elif any(keyword in content_lower for keyword in ['premium', 'payment', 'frequency', 'mode']):
-                doc.metadata['category'] = 'premium'
-            elif any(keyword in content_lower for keyword in ['rider', 'add-on', 'additional', 'optional']):
-                doc.metadata['category'] = 'riders'
-            elif any(keyword in content_lower for keyword in ['loan', 'surrender', 'advance']):
-                doc.metadata['category'] = 'loan_surrender'
-            elif any(keyword in content_lower for keyword in ['free look', 'cancellation', 'cooling']):
-                doc.metadata['category'] = 'free_look'
-            elif any(keyword in content_lower for keyword in ['suicide', 'exclusion', 'exception']):
-                doc.metadata['category'] = 'exclusions'
-            elif any(keyword in content_lower for keyword in ['revival', 'lapse', 'reinstatement']):
-                doc.metadata['category'] = 'revival'
-            elif any(keyword in content_lower for keyword in ['tax', '80c', '10(10d)', 'deduction']):
-                doc.metadata['category'] = 'tax_benefits'
-            else:
-                doc.metadata['category'] = 'general'
+            categories = []
             
+            # Multi-category assignment for insurance terms
+            if any(keyword in content_lower for keyword in ['waiting period', 'wait', 'waiting']):
+                categories.append('waiting_period')
+            if any(keyword in content_lower for keyword in ['pre-existing', 'ped', 'pre existing']):
+                categories.append('pre_existing')
+            if any(keyword in content_lower for keyword in ['maternity', 'pregnancy', 'childbirth', 'delivery']):
+                categories.append('maternity')
+            if any(keyword in content_lower for keyword in ['ayush', 'ayurveda', 'homeopathy', 'unani', 'siddha']):
+                categories.append('ayush')
+            if any(keyword in content_lower for keyword in ['room rent', 'icu', 'hospital charges']):
+                categories.append('room_rent')
+            if any(keyword in content_lower for keyword in ['ambulance', 'transport']):
+                categories.append('ambulance')
+            if any(keyword in content_lower for keyword in ['no claim bonus', 'ncb', 'no claim discount', 'ncd']):
+                categories.append('no_claim_bonus')
+            if any(keyword in content_lower for keyword in ['organ donor', 'transplant', 'donation']):
+                categories.append('organ_donor')
+            if any(keyword in content_lower for keyword in ['health check', 'checkup', 'preventive']):
+                categories.append('health_checkup')
+            if any(keyword in content_lower for keyword in ['portability', 'switch', 'transfer']):
+                categories.append('portability')
+            if any(keyword in content_lower for keyword in ['joint replacement', 'hernia', 'cataract', 'surgery']):
+                categories.append('surgical_procedures')
+            if any(keyword in content_lower for keyword in ['grace period', 'grace']):
+                categories.append('grace_period')
+            
+            doc.metadata['categories'] = categories if categories else ['general']
             enhanced_chunks.append(doc)
         
-        print(f"Created {len(enhanced_chunks)} enhanced chunks for better extraction")
-        
+        logger.info(f"✅ Created {len(enhanced_chunks)} optimized chunks")
         return enhanced_chunks
     
-    except requests.exceptions.Timeout:
-        raise Exception(f"Timeout occurred while downloading document from {url}")
-    except requests.exceptions.ConnectionError:
-        raise Exception(f"Connection error while downloading document from {url}")
-    except requests.exceptions.HTTPError as e:
-        raise Exception(f"HTTP error {e.response.status_code} while downloading document")
     except Exception as e:
+        logger.error(f"❌ Error processing document: {str(e)}")
         raise Exception(f"Error processing document: {str(e)}")
     
     finally:
         if os.path.exists(temp_pdf_path):
             os.remove(temp_pdf_path)
-            print("Temporary PDF file cleaned up")
