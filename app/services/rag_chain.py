@@ -17,11 +17,12 @@ def get_rag_chain(vectorstore):
             temperature=0,
             model_name="meta-llama/llama-4-scout-17b-16e-instruct",
             api_key=os.getenv("GROQ_API_KEY"),
-            max_tokens=200,
+            max_tokens=350,  # 🔁 was 200
             timeout=45,
             max_retries=2,
             request_timeout=45
         )
+
         logger.info("🚀 Llama 4 Scout loaded (optimized for concise responses)")
     except Exception as primary_error:
         logger.warning(f"Llama 4 Scout failed: {primary_error}")
@@ -54,12 +55,13 @@ def get_rag_chain(vectorstore):
         retriever = vectorstore.as_retriever(
             search_type="mmr",
             search_kwargs={
-                "k": 6,
+                "k": 8,              # 🔁 was 6
                 "fetch_k": 12,
                 "lambda_mult": 0.75
             }
         )
-        logger.info("🔍 Faster MMR retriever configured (k=6)")
+
+        logger.info("🔍 Faster MMR retriever configured (k=8)")
     except Exception as e:
         logger.warning(f"MMR failed, using similarity: {e}")
         retriever = vectorstore.as_retriever(
