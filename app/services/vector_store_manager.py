@@ -14,24 +14,25 @@ def get_vectorstore(chunked_docs: List, document_url: str) -> Tuple[PineconeVect
     """Create persistent vectorstore with document-specific namespaces."""
 
     try:
+        # Pinecone v3+ initialization
         pc = Pinecone(api_key=os.getenv("PINECONE_API_KEY"))
         logger.info("🔗 Connected to Pinecone successfully")
     except Exception as e:
         raise Exception(f"Failed to connect to Pinecone: {e}")
 
     try:
-        # Correct model: BGE Small (384-d)
+        # BGE Small model (384-dimensional)
         embeddings = HuggingFaceEmbeddings(
             model_name="BAAI/bge-small-en-v1.5",
             model_kwargs={'device': 'cuda' if torch.cuda.is_available() else 'cpu'},
-            encode_kwargs={'normalize_embeddings': True,  'batch_size': 32}
+            encode_kwargs={'normalize_embeddings': True, 'batch_size': 32}
         )
         logger.info("⚡ Fast embedding model loaded: BAAI/bge-small-en-v1.5 (384-d)")
 
     except Exception as e:
         raise Exception(f"Failed to load embedding model: {e}")
 
-    # IMPORTANT: Index must match BGE's 384-dim output
+    # Index must match BGE's 384-dim output
     index_name = "hackrx-fast-384"
     namespace = hashlib.md5(document_url.encode()).hexdigest()[:12]
 
@@ -42,9 +43,12 @@ def get_vectorstore(chunked_docs: List, document_url: str) -> Tuple[PineconeVect
             logger.info(f"🏗️ Creating PERSISTENT index: {index_name}")
             pc.create_index(
                 name=index_name,
-                dimension=384,  # 🔧 FIXED: Was incorrectly set to 768
+                dimension=384,  # BGE Small dimension
                 metric="cosine",
-                spec=ServerlessSpec(cloud="aws", region="us-east-1")
+                spec=ServerlessSpec(
+                    cloud=os.getenv("PINECONE_CLOUD", "aws"),
+                    region=os.getenv("PINECONE_REGION", "us-west-2")
+                )
             )
             logger.info(f"✅ Waiting for index '{index_name}' to be ready...")
             for _ in range(30):  # Wait up to ~30 seconds
@@ -52,11 +56,16 @@ def get_vectorstore(chunked_docs: List, document_url: str) -> Tuple[PineconeVect
                     break
                 time.sleep(1)
 
-        vectorstore_index = pc.Index(index_name)
+        # Get index reference
+        index = pc.Index(index_name)
 
-        stats = vectorstore_index.describe_index_stats()
-        namespace_stats = stats.get("namespaces", {}).get(namespace, {})
-        vector_count = namespace_stats.get("vector_count", 0)
+        # Check if namespace already has vectors
+        try:
+            stats = index.describe_index_stats()
+            namespace_stats = stats.get("namespaces", {}).get(namespace, {})
+            vector_count = namespace_stats.get("vector_count", 0)
+        except:
+            vector_count = 0
 
         if vector_count > 0:
             vectorstore = PineconeVectorStore.from_existing_index(

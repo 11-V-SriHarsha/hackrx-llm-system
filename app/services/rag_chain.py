@@ -16,11 +16,11 @@ def get_rag_chain(vectorstore):
         llm = ChatGroq(
             temperature=0,
             model_name="meta-llama/llama-4-scout-17b-16e-instruct",
-            api_key=os.getenv("GROQ_API_KEY"),
-            max_tokens=350,  # 🔁 was 200
-            timeout=45,
+            groq_api_key=os.getenv("GROQ_API_KEY"),
+            max_tokens=300,
+            timeout=30,
             max_retries=2,
-            request_timeout=45
+            request_timeout=30
         )
 
         logger.info("🚀 Llama 4 Scout loaded (optimized for concise responses)")
@@ -30,7 +30,7 @@ def get_rag_chain(vectorstore):
             llm = ChatGroq(
                 temperature=0,
                 model_name="llama-3.3-70b-versatile",
-                api_key=os.getenv("GROQ_API_KEY"),
+                groq_api_key=os.getenv("GROQ_API_KEY"),
                 max_tokens=200,
                 timeout=45,
                 max_retries=2,
@@ -42,7 +42,7 @@ def get_rag_chain(vectorstore):
             llm = ChatGroq(
                 temperature=0,
                 model_name="llama-3.1-8b-instant",
-                api_key=os.getenv("GROQ_API_KEY"),
+                groq_api_key=os.getenv("GROQ_API_KEY"),
                 max_tokens=200,
                 timeout=45,
                 max_retries=2,
@@ -55,7 +55,7 @@ def get_rag_chain(vectorstore):
         retriever = vectorstore.as_retriever(
             search_type="mmr",
             search_kwargs={
-                "k": 8,              # 🔁 was 6
+                "k": 8,
                 "fetch_k": 12,
                 "lambda_mult": 0.75
             }
