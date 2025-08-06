@@ -21,12 +21,21 @@ def get_vectorstore(chunked_docs: List, document_url: str) -> Tuple[PineconeVect
         raise Exception(f"Failed to connect to Pinecone: {e}")
 
     try:
-        # BGE Small model (384-dimensional)
-        embeddings = HuggingFaceEmbeddings(
-            model_name="BAAI/bge-small-en-v1.5",
-            model_kwargs={'device': 'cuda' if torch.cuda.is_available() else 'cpu'},
-            encode_kwargs={'normalize_embeddings': True, 'batch_size': 32}
-        )
+        # BGE Small model (384-dimensional) with fallback for older PyTorch
+        try:
+            embeddings = HuggingFaceEmbeddings(
+                model_name="BAAI/bge-small-en-v1.5",
+                model_kwargs={'device': 'cuda' if torch.cuda.is_available() else 'cpu'},
+                encode_kwargs={'normalize_embeddings': True, 'batch_size': 32}
+            )
+        except Exception as torch_error:
+            logger.warning(f"BGE model failed, trying fallback: {torch_error}")
+            # Fallback to a model that works with older PyTorch
+            embeddings = HuggingFaceEmbeddings(
+                model_name="sentence-transformers/all-MiniLM-L6-v2",
+                model_kwargs={'device': 'cuda' if torch.cuda.is_available() else 'cpu'},
+                encode_kwargs={'normalize_embeddings': True, 'batch_size': 32}
+            )
         logger.info("⚡ Fast embedding model loaded: BAAI/bge-small-en-v1.5 (384-d)")
 
     except Exception as e:

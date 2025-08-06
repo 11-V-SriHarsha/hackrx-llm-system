@@ -7,7 +7,7 @@ requests==2.31.0
 
 # === ML/AI Core Libraries ===
 numpy>=1.24.3,<2.0.0
-torch>=2.0.1,<2.2.0  # compatible with sentence-transformers
+torch>=2.2.0,<2.4.0  # compatible with sentence-transformers and includes uint64 support
 
 # === LangChain Ecosystem (Python 3.11 compatible) ===
 langchain>=0.1.0,<0.2.0
@@ -21,7 +21,7 @@ langchain-huggingface>=0.0.1,<0.1.0
 pinecone-client>=3.0.0,<4.0.0  # updated to fix conflict
 
 # === NLP, Embeddings, Transformers ===
-sentence-transformers>=2.2.0,<3.0.0
+sentence-transformers>=2.3.0,<3.0.0
 transformers>=4.30.0,<5.0.0
 tokenizers>=0.13.0,<1.0.0
 huggingface-hub>=0.16.4,<1.0.0
